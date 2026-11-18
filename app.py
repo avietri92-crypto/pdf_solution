@@ -14,10 +14,19 @@ MIN_CARATTERI = 30                                         # sotto questa soglia
 LEGGIBILI = re.compile(r"[A-Za-zÀ-ÿ0-9\s.,;:'\"()€%/\-–_]")
 
 
-def controlla_token(authorization):
-    if authorization != f"Bearer {API_TOKEN}":
+from fastapi import Depends
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+sicurezza = HTTPBearer()
+
+
+def controlla_token(credenziali: HTTPAuthorizationCredentials = Depends(sicurezza)):
+    if credenziali.credentials != API_TOKEN:
         raise HTTPException(401, "Token non valido")
 
+
+@app.post("/estrai_testo", dependencies=[Depends(controlla_token)])
+def estrai_testo(file: UploadFile = File(...)):
 
 @app.get("/health")
 def health():
