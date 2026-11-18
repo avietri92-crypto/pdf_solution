@@ -1,3 +1,5 @@
+import base64
+import binascii
 import io
 import os
 import re
@@ -5,6 +7,7 @@ import re
 import pdfplumber
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 app = FastAPI()
 sicurezza = HTTPBearer()
@@ -21,6 +24,10 @@ PAROLE_COMUNI = {
     "non", "si", "da", "dal", "dalla", "o", "a", "è", "su", "sono", "come", "ed", "art",
 }
 PAROLA = re.compile(r"[a-zàèéìòù]+")
+
+
+class RichiestaJson(BaseModel):
+    dati: str          # il PDF in base64
 
 
 def controlla_token(credenziali: HTTPAuthorizationCredentials = Depends(sicurezza)):
@@ -41,18 +48,11 @@ def pagina_leggibile(testo):
     return comuni / len(parole) >= MIN_ITALIANO
 
 
-@app.get("/health")
-def health():
-    return {"ok": True}
-
-
-@app.post("/estrai_testo", dependencies=[Depends(controlla_token)])
-def estrai_testo(file: UploadFile = File(...)):
-    dati = file.file.read()
+def estrai(dati: bytes):
     if len(dati) > MAX_MB * 1024 * 1024:
         raise HTTPException(413, f"File oltre {MAX_MB} MB")
     if b"%PDF" not in dati[:1024]:
-        raise HTTPException(400, "Il file non è un PDF (se è un .p7m, va prima aperto)")
+        raise HTTPException(400, "Il file non è un PDF")
 
     pagine_buone = []
     da_ocr = []
@@ -71,17 +71,36 @@ def estrai_testo(file: UploadFile = File(...)):
 
     lette = min(totale, MAX_PAGINE)
     if not da_ocr:
-        tipo = "digitale"          # tutto leggibile: si usa il testo
+        tipo = "digitale"
     elif len(da_ocr) == lette:
-        tipo = "da_ocr"            # niente di leggibile: va tutto all'OCR
+        tipo = "da_ocr"
     else:
-        tipo = "misto"             # alcune pagine vanno all'OCR
+        tipo = "misto"
 
     return {
-        "testo": "\n\n".join(pagine_buone),   # solo le pagine leggibili
-        "tipo": tipo,                          # digitale | misto | da_ocr
+        "testo": "\n\n".join(pagine_buone),
+        "tipo": tipo,
         "pagine": totale,
         "pagine_lette": lette,
-        "pagine_da_ocr": da_ocr,               # scansionate o con testo codificato
+        "pagine_da_ocr": da_ocr,
         "troncato": totale > lette,
     }
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+@app.post("/estrai_testo", dependencies=[Depends(controlla_token)])
+def estrai_testo(file: UploadFile = File(...)):
+    return estrai(file.file.read())
+
+
+@app.post("/estrai_testo_json", dependencies=[Depends(controlla_token)])
+def estrai_testo_json(richiesta: RichiestaJson):
+    try:
+        dati = base64.b64decode(richiesta.dati, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "Il campo 'dati' non è un base64 valido")
+    return estrai(dati)
