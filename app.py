@@ -3,9 +3,11 @@ import os
 import re
 
 import pdfplumber
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 app = FastAPI()
+sicurezza = HTTPBearer()
 
 API_TOKEN = os.environ["API_TOKEN"]
 MAX_MB = int(os.environ.get("MAX_MB", "40"))               # dimensione massima del file
@@ -14,29 +16,18 @@ MIN_CARATTERI = 30                                         # sotto questa soglia
 LEGGIBILI = re.compile(r"[A-Za-zÀ-ÿ0-9\s.,;:'\"()€%/\-–_]")
 
 
-from fastapi import Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-sicurezza = HTTPBearer()
-
-
 def controlla_token(credenziali: HTTPAuthorizationCredentials = Depends(sicurezza)):
     if credenziali.credentials != API_TOKEN:
         raise HTTPException(401, "Token non valido")
 
-
-@app.post("/estrai_testo", dependencies=[Depends(controlla_token)])
-def estrai_testo(file: UploadFile = File(...)):
 
 @app.get("/health")
 def health():
     return {"ok": True}
 
 
-@app.post("/estrai_testo")
-def estrai_testo(file: UploadFile = File(...), authorization: str = Header(None)):
-    controlla_token(authorization)
-
+@app.post("/estrai_testo", dependencies=[Depends(controlla_token)])
+def estrai_testo(file: UploadFile = File(...)):
     dati = file.file.read()
     if len(dati) > MAX_MB * 1024 * 1024:
         raise HTTPException(413, f"File oltre {MAX_MB} MB")
@@ -79,4 +70,3 @@ def estrai_testo(file: UploadFile = File(...), authorization: str = Header(None)
         "leggibilita": leggibilita,            # da 0 a 1: sotto 0.85 il testo è "a simboli"
         "troncato": totale > lette,
     }
-  
